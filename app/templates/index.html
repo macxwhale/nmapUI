@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nmap Management Platform</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">Nmap Platform</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">Add Target</div>
+                    <div class="card-body">
+                        <form id="targetForm">
+                            <div class="mb-3">
+                                <label class="form-label">Name</label>
+                                <input type="text" id="targetName" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">IP Address</label>
+                                <input type="text" id="targetIp" class="form-control" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Add Target</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header bg-success text-white">Start Scan</div>
+                    <div class="card-body">
+                        <form id="scanForm">
+                            <div class="mb-3">
+                                <label class="form-label">Target</label>
+                                <select id="scanTarget" class="form-select"></select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Profile</label>
+                                <select id="scanProfile" class="form-select">
+                                    <option value="quick">Quick Scan</option>
+                                    <option value="service">Service Detection</option>
+                                    <option value="os">OS Detection</option>
+                                    <option value="deep">Deep Scan</option>
+                                    <option value="vuln">Vulnerability Scan</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100">Queue Scan</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                        Recent Scans
+                        <button class="btn btn-sm btn-light" onclick="loadScans()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Target</th>
+                                    <th>Profile</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scanTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Scan Results -->
+    <div class="modal fade" id="resultModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Scan Results</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <pre id="resultContent" class="bg-dark text-light p-3"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        async function loadTargets() {
+            const resp = await fetch('/targets/');
+            const targets = await resp.json();
+            const select = document.getElementById('scanTarget');
+            select.innerHTML = '';
+            targets.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = `${t.name} (${t.ip_address})`;
+                select.appendChild(opt);
+            });
+        }
+
+        async function loadScans() {
+            // We need an endpoint to list scans. For now, let's assume /scans/
+            const resp = await fetch('/scans/');
+            if (!resp.ok) return;
+            const scans = await resp.json();
+            const table = document.getElementById('scanTable');
+            table.innerHTML = '';
+            scans.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${s.id}</td>
+                    <td>${s.target_ip}</td>
+                    <td>${s.profile}</td>
+                    <td><span class="badge bg-${getStatusColor(s.status)}">${s.status}</span></td>
+                    <td><button class="btn btn-sm btn-outline-primary" onclick="viewResult(${s.id})">View</button></td>
+                `;
+                table.appendChild(tr);
+            });
+        }
+
+        function getStatusColor(status) {
+            if (status === 'COMPLETED') return 'success';
+            if (status === 'RUNNING') return 'primary';
+            if (status === 'FAILED') return 'danger';
+            return 'secondary';
+        }
+
+        async function viewResult(id) {
+            const resp = await fetch(`/scan/${id}`);
+            const data = await resp.json();
+            document.getElementById('resultContent').textContent = JSON.stringify(data, null, 2);
+            new bootstrap.Modal(document.getElementById('resultModal')).show();
+        }
+
+        document.getElementById('targetForm').onsubmit = async (e) => {
+            e.preventDefault();
+            await fetch('/targets/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: document.getElementById('targetName').value,
+                    ip_address: document.getElementById('targetIp').value
+                })
+            });
+            loadTargets();
+            e.target.reset();
+        };
+
+        document.getElementById('scanForm').onsubmit = async (e) => {
+            e.preventDefault();
+            await fetch('/scan/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    target_id: parseInt(document.getElementById('scanTarget').value),
+                    profile_name: document.getElementById('scanProfile').value
+                })
+            });
+            loadScans();
+        };
+
+        loadTargets();
+        loadScans();
+        setInterval(loadScans, 5000);
+    </script>
+</body>
+</html>
